@@ -11,10 +11,15 @@ all:
 
 clean:
 	$(MAKE) -C $(KERNEL_SRC) M=$(CUR_DIR) clean
+	rm -rf app
+
+app:
+	$(CROSS_COMPILE)gcc app.c -o app
 
 copy:
 	sudo mount ../rootfs.ext4 /mnt
 	sudo cp *.ko /mnt
+	sudo cp app /mnt
 	sudo umount /mnt
 
 .PHONE: clean copy
