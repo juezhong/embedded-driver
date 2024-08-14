@@ -3,16 +3,20 @@
 #include <linux/kernel.h>
 #include <linux/cdev.h>
 #include <linux/fs.h>
+#include <linux/device.h>
+#include <linux/uaccess.h>
 
 #define DEV_NAME "mem_ctl"
 #define DEV_CNT 2
 #define BUF_SIZE 128
 
 static dev_t dev_no; // device number(major minor)
+static struct class *class;
 // user define data struct of mem_ctl, 
 // container cdev structure, data area.
 struct mem_ctl_dev {
     struct cdev dev;
+    struct device *device;
     char vbuf[BUF_SIZE];
 };
 // device 1
@@ -118,8 +122,28 @@ static int __init mem_ctl_init(void)
     if (ret)
         goto add_err_2;
 
+    // 4. create class
+    class = class_create(THIS_MODULE, DEV_NAME);
+    if (IS_ERR(class)) {
+        ret = PTR_ERR(class);
+        goto class_err;
+    }
+    // 5. create device
+    mem_ctl_dev_1.device = device_create(class, NULL, dev_no + 0, NULL, "%s_%d", DEV_NAME, 0);
+    mem_ctl_dev_2.device = device_create(class, NULL, dev_no + 1, NULL, "%s_%d", DEV_NAME, 1);
+    if (IS_ERR(mem_ctl_dev_1.device) || IS_ERR(mem_ctl_dev_2.device)) {
+        ret = PTR_ERR(mem_ctl_dev_1.device);
+        goto dev_err;
+    }
     return 0;
 
+dev_err:
+    device_destroy(class, dev_no + 1);
+    device_destroy(class, dev_no + 0);
+class_err:
+    class_destroy(class);
+    printk("fail to create class.\n");
+    cdev_del(&mem_ctl_dev_2.dev);
 add_err_2:
     printk("fail to add mem_ctl_dev_2.\n");
     cdev_del(&mem_ctl_dev_1.dev);
@@ -137,6 +161,9 @@ static void __exit mem_ctl_exit(void)
     cdev_del(&mem_ctl_dev_1.dev);
     cdev_del(&mem_ctl_dev_2.dev);
     unregister_chrdev_region(dev_no, DEV_CNT);
+    device_destroy(class, dev_no + 1);
+    device_destroy(class, dev_no + 0);
+    class_destroy(class);
 }
 
 module_init(mem_ctl_init);
