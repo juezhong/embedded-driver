@@ -4,14 +4,21 @@
 #include <linux/cdev.h>
 #include <linux/fs.h>
 
-static dev_t dev_no; // device number(major minor)
-static struct cdev mem_ctl_dev; // cdev struct
-
 #define DEV_NAME "mem_ctl"
-#define DEV_CNT 1
+#define DEV_CNT 2
 #define BUF_SIZE 128
 
-static char vbuf[BUF_SIZE];
+static dev_t dev_no; // device number(major minor)
+// user define data struct of mem_ctl, 
+// container cdev structure, data area.
+struct mem_ctl_dev {
+    struct cdev dev;
+    char vbuf[BUF_SIZE];
+};
+// device 1
+static struct mem_ctl_dev mem_ctl_dev_1;
+// device 2
+static struct mem_ctl_dev mem_ctl_dev_2;
 
 /*
 because virtual device not associated with hardware,
@@ -19,13 +26,16 @@ so open and release function return 0.
 */
 static int mem_ctl_open(struct inode *inode, struct file *filp)
 {
-    printk("mem_ctl open.\n");
+    // printk("mem_ctl open.\n");
+    // via container_of get mem_ctl_dev address
+    // inode's member i_cdev saved cdev structure address.
+    filp->private_data = container_of(inode->i_cdev, struct mem_ctl_dev, dev);
     return 0;
 }
 
 static int mem_ctl_release(struct inode *inode, struct file *filp)
 {
-    printk("mem_ctl release.\n");
+    // printk("mem_ctl release.\n");
     return 0;
 }
 
@@ -36,6 +46,9 @@ ssize_t mem_ctl_write(struct file *filp, const char __user *buf, size_t count, l
     unsigned long p = *ppos;
     int ret;
     int tmp = count;
+    // get file's private data
+    struct mem_ctl_dev *dev = filp->private_data;
+    char *vbuf = dev->vbuf;
     // over buf size
     if (p > BUF_SIZE)
         return 0;
@@ -55,7 +68,9 @@ ssize_t mem_ctl_read(struct file *filp, char __user *buf, size_t count, loff_t *
     unsigned long p = *ppos;
     int ret;
     int tmp = count;
-
+    // get file's private data
+    struct mem_ctl_dev *dev = filp->private_data;
+    char *vbuf = dev->vbuf;
     if (p > BUF_SIZE)
         return 0;
     if (tmp > BUF_SIZE - p)
@@ -82,21 +97,34 @@ static int __init mem_ctl_init(void)
     // 1. dynamic alloc device number
     int ret;
     printk("mem_ctl_init\n");
+    // allocate 2 device minor
     ret = alloc_chrdev_region(&dev_no, 0, DEV_CNT, DEV_NAME);
     if (ret)
         goto alloc_err;
 
+    // device 1
     // 2. association struct cdev&file_operations
-    cdev_init(&mem_ctl_dev, &mem_ctl_fops);
-
+    cdev_init(&mem_ctl_dev_1.dev, &mem_ctl_fops);
     // 3. add cdev
-    ret = cdev_add(&mem_ctl_dev, dev_no, DEV_CNT);
+    ret = cdev_add(&mem_ctl_dev_1.dev, dev_no + 0, 1);
     if (ret)
-        goto add_err;
+        goto add_err_1;
+
+    // device 2
+    // 2. association struct cdev&file_operations
+    cdev_init(&mem_ctl_dev_2.dev, &mem_ctl_fops);
+    // 3. add cdev
+    ret = cdev_add(&mem_ctl_dev_2.dev, dev_no + 1, 1);
+    if (ret)
+        goto add_err_2;
+
     return 0;
 
-add_err:
-    printk("fail to add cdev.\n");
+add_err_2:
+    printk("fail to add mem_ctl_dev_2.\n");
+    cdev_del(&mem_ctl_dev_1.dev);
+add_err_1:
+    printk("fail to add mem_ctl_dev_1.\n");
     unregister_chrdev_region(dev_no, DEV_CNT);
 alloc_err:
     printk("fail to alloc devno.\n");
@@ -106,7 +134,8 @@ alloc_err:
 static void __exit mem_ctl_exit(void)
 {
     printk("mem_ctl_exit.\n");
-    cdev_del(&mem_ctl_dev);
+    cdev_del(&mem_ctl_dev_1.dev);
+    cdev_del(&mem_ctl_dev_2.dev);
     unregister_chrdev_region(dev_no, DEV_CNT);
 }
 

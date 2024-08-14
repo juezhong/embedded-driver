@@ -17,6 +17,7 @@ int main(void)
 
     // write data
     write(fd, write_buf, strlen(write_buf));
+    printf("write success 写入成功。\n");
     close(fd);
 
     // reopen
